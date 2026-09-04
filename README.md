@@ -80,6 +80,21 @@ docker compose exec app php artisan migrate:fresh --seed
 
 A API fica disponível em `http://localhost:8000`.
 
+### Sobre o desempenho no Windows
+
+As dependências ficam em um volume nomeado montado em `/var/www/vendor`, e não
+no diretório compartilhado com o host. Ler os milhares de arquivos de `vendor/`
+através do bind mount do Windows dominava o tempo de resposta: só o boot do
+framework levava 22 segundos, e uma rota sem acesso ao banco respondia em 4
+segundos. Com `vendor` em disco nativo do contêiner, o boot caiu para 0,25
+segundo e a mesma rota passou a responder em 40 milissegundos.
+
+Por isso, ao alterar `composer.json`, é preciso reconstruir a imagem:
+
+```bash
+docker compose up -d --build
+```
+
 ## Endpoints
 
 | Método | Rota | Descrição |

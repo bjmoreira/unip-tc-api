@@ -7,6 +7,8 @@ services:
     working_dir: /var/www
     volumes:
       - .:/var/www
+      # vendor fica em volume proprio, fora do bind mount do Windows.
+      - vendor:/var/www/vendor
     ports:
       - "8000:8000"
     depends_on:
@@ -19,6 +21,9 @@ services:
       DB_DATABASE: questoes_adaptativas
       DB_USERNAME: qa_user
       DB_PASSWORD: qa_pass
+      # O servidor embutido do PHP atende uma requisicao por vez. Sem workers, as
+      # chamadas da interface enfileiram e a tela parece travada.
+      PHP_CLI_SERVER_WORKERS: 10
     command: php artisan serve --host=0.0.0.0 --port=8000
 
   db:
@@ -41,3 +46,4 @@ services:
 
 volumes:
   dbdata:
+  vendor:
