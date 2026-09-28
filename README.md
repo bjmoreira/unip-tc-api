@@ -59,6 +59,14 @@ app/Recomendacao/
   Recomendador.php    distribuição das questões entre os tópicos
   ServicoProva.php    orquestração do ciclo de provas sobre o banco
 
+app/Simulacao/
+  Aleatorio.php       sorteio com semente explícita
+  Agente.php          estudante virtual e premissas do modelo
+  Experimento.php     um braço do experimento, prova a prova
+
+app/Console/Commands/
+  Simular.php         comando que roda o experimento e grava os dados
+
 database/seeders/Banco/
   Gerador.php         base dos geradores de questões
   Item.php            uma questão antes da carga
@@ -70,6 +78,37 @@ database/seeders/Banco/
 o estado como array e devolvem a decisão. Isso permite que o mesmo código seja
 usado pela aplicação e pelo ambiente de simulação, garantindo que aquilo que é
 avaliado no experimento seja exatamente o que atende ao usuário.
+
+## Ambiente de simulação
+
+O experimento compara duas estratégias de montagem de prova sobre a mesma
+população de estudantes virtuais e a mesma semente:
+
+- **adaptativo**: `Recomendador::distribuir`;
+- **linha de base**: `Recomendador::distribuirUniforme` em todas as provas.
+
+```bash
+docker compose exec app php artisan simular
+```
+
+Cada agente tem uma proficiência **real** por tópico, sorteada e desconhecida do
+algoritmo, com áreas fortes e fracas próprias. A chance de acerto sai da mesma
+curva logística do Elo aplicada à proficiência real, e a proficiência real sobe a
+cada questão praticada do tópico, com ganho decrescente. As premissas do modelo
+do estudante, inclusive as que trabalham contra a hipótese, estão declaradas no
+cabeçalho de `app/Simulacao/Agente.php`; a mais discutível delas, o incremento de
+aprendizagem, é exposta em `--ganho` justamente para que o resultado possa ser
+testado contra outros valores.
+
+Como o perfil real é conhecido, a simulação mede duas coisas que não se podem
+medir em campo: o ganho de aprendizagem nos tópicos que começaram fracos e o erro
+da própria estimativa do Elo.
+
+Os dados brutos vão para `storage/app/simulacao/`: `experimento.csv`, com uma
+linha por prova por braço, e `agentes.csv`, com o resultado final de cada agente.
+Esse diretório é ignorado pelo Git, por conter saída gerada.
+
+Opções: `--agentes`, `--provas`, `--tamanho`, `--semente`, `--ganho` e `--saida`.
 
 ## Executando
 
