@@ -1,4 +1,4 @@
-# Questões Adaptativas: API
+# SISTEMA DE RECOMENDAÇÃO ADAPTATIVA DE QUESTÕES PARA REFORÇO DA APRENDIZAGEM COM BASE NO DESEMPENHO DO ESTUDANTE: API
 
 Serviço que estima a proficiência de um estudante por tópico e monta cada nova
 prova concentrando as questões nas áreas em que ele teve o pior desempenho.
