@@ -47,6 +47,8 @@ final class Experimento
         private readonly int $tamanho,
         private readonly int $provas,
         private readonly int $semente,
+        private readonly ?int $piso = null,
+        private readonly ?float $teto = null,
     ) {}
 
     /**
@@ -82,7 +84,13 @@ final class Experimento
             $recentes = [];
 
             for ($numero = 1; $numero <= $this->provas; $numero++) {
-                $agente->relogio += $agente->intervalos[$numero - 1];
+                $intervalo = $agente->intervalos[$numero - 1];
+                $agente->relogio += $intervalo;
+
+                // O esquecimento age sobre o intervalo decorrido antes desta
+                // prova, e nao depois dela: o que o agente responde agora ja
+                // reflete o tempo que passou sem praticar.
+                $agente->esquecer($intervalo);
 
                 $estado = $agente->estado();
 
@@ -90,7 +98,7 @@ final class Experimento
                 // aplicacao: sem nenhuma resposta observada, nao existe
                 // informacao para o recomendador usar.
                 $distribuicao = ($adaptativo && $numero > 1)
-                    ? Recomendador::distribuir($estado, $this->tamanho)
+                    ? Recomendador::distribuir($estado, $this->tamanho, $this->piso, $this->teto)
                     : Recomendador::distribuirUniforme($estado, $this->tamanho);
 
                 $bloqueadas = $this->somarRecentes($recentes);

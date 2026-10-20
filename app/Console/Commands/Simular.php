@@ -4,6 +4,7 @@ namespace App\Console\Commands;
 
 use App\Models\Questao;
 use App\Models\Topico;
+use App\Recomendacao\Elo;
 use App\Simulacao\Agente;
 use App\Simulacao\Aleatorio;
 use App\Simulacao\Experimento;
@@ -29,6 +30,12 @@ class Simular extends Command
         {--tamanho=20 : Quantas questoes por prova}
         {--semente=20260928 : Semente do experimento, para reproducao}
         {--ganho=6.0 : Ganho de proficiencia real na primeira pratica de um topico}
+        {--piso= : Piso de cobertura por topico; por omissao o valor da aplicacao}
+        {--retencao=0 : Constante de retencao em dias; 0 desliga o esquecimento}
+        {--estimador=padrao : Estimador de proficiencia: padrao, k_adaptativo ou tendencia}
+        {--teto= : Teto do fator de espacamento; 1 desliga o espacamento}
+        {--intervalo-min=1 : Menor intervalo em dias entre provas consecutivas}
+        {--intervalo-max=4 : Maior intervalo em dias entre provas consecutivas}
         {--saida= : Diretorio de saida; por omissao storage/app/simulacao}';
 
     protected $description = 'Executa o experimento comparativo entre a distribuicao adaptativa e a linha de base uniforme';
@@ -40,6 +47,19 @@ class Simular extends Command
         $tamanho    = max(1, (int) $this->option('tamanho'));
         $semente    = (int) $this->option('semente');
         $ganho      = max(0.0, (float) $this->option('ganho'));
+        $piso       = $this->option('piso') === null ? null : max(0, (int) $this->option('piso'));
+        $retencao   = max(0.0, (float) $this->option('retencao'));
+        $estimador  = (string) $this->option("estimador");
+        $iMin       = max(0, (int) $this->option("intervalo-min"));
+        $iMax       = max($iMin, (int) $this->option("intervalo-max"));
+        $teto       = $this->option("teto") === null ? null : max(1.0, (float) $this->option("teto"));
+
+        $modos = [Elo::MODO_PADRAO, Elo::MODO_K_ADAPTATIVO, Elo::MODO_TENDENCIA];
+        if (! in_array($estimador, $modos, true)) {
+            $this->error('Estimador inválido. Use: ' . implode(', ', $modos));
+
+            return self::FAILURE;
+        }
 
         $banco = $this->carregarBanco();
 
@@ -67,7 +87,7 @@ class Simular extends Command
         $construcao = new Aleatorio($semente);
         $agentes = [];
         for ($i = 0; $i < $quantidade; $i++) {
-            $agentes[] = new Agente($i, $topicos, $provas, $construcao, $ganho);
+            $agentes[] = new Agente($i, $topicos, $provas, $construcao, $ganho, $retencao, $estimador, $iMin, $iMax);
         }
 
         $this->line(sprintf(
@@ -79,7 +99,7 @@ class Simular extends Command
         $this->line(sprintf('  Premissa de aprendizagem: ganho de %.1f pontos na primeira prática do tópico', $ganho));
         $this->newLine();
 
-        $experimento = new Experimento($banco, $tamanho, $provas, $semente);
+        $experimento = new Experimento($banco, $tamanho, $provas, $semente, $piso, $teto);
 
         $this->line('  Rodando braço adaptativo...');
         $adaptativo = $experimento->rodar($agentes, true);

@@ -42,12 +42,28 @@ use App\Recomendacao\Elo;
  *    Como esta, a unica vantagem que o braco adaptativo pode obter vem de onde
  *    ele aloca as questoes, e nao de um bonus concedido pelo modelo.
  *
- * 4. Nao ha esquecimento. A proficiencia real nunca cai. Essa e a premissa mais
- *    restritiva das quatro, e trabalha CONTRA a hipotese: o fator de
- *    espacamento do recomendador existe justamente para combater o
- *    esquecimento, e num mundo sem esquecimento ele so consome vagas de prova
- *    sem produzir beneficio. O ganho que o braco adaptativo mostrar aqui e,
- *    portanto, um piso.
+ * 4. Esquecimento. Por omissao nao existe: a proficiencia real nunca cai. Essa
+ *    e a premissa mais restritiva das quatro, e trabalha CONTRA a hipotese,
+ *    porque o fator de espacamento do recomendador existe justamente para
+ *    combater o esquecimento, e num mundo sem esquecimento ele so consome
+ *    vagas de prova sem produzir beneficio. O resultado medido sem
+ *    esquecimento e, portanto, um piso.
+ *
+ *    O cenario com esquecimento e ativado pela constante de tempo $retencao,
+ *    em dias. O que decai e apenas o que foi APRENDIDO no experimento:
+ *
+ *        real = inicial + (real - inicial) * exp(-dias_decorridos / retencao)
+ *
+ *    A proficiencia nunca cai abaixo daquela com que o agente comecou, porque
+ *    nao se esquece o que nunca se aprendeu, e a forma exponencial e a da
+ *    curva de retencao de Ebbinghaus (1913), ja citada no referencial.
+ *
+ *    A retencao e FIXA: nao cresce com o numero de praticas. Fazer a retencao
+ *    melhorar a cada revisao embutiria no modelo do estudante o proprio efeito
+ *    da repeticao espacada que se quer testar, e o experimento confirmaria a
+ *    hipotese por construcao, exatamente como na premissa 3. Com retencao
+ *    fixa, a unica vantagem que o braco adaptativo pode obter vem de revisitar
+ *    o topico antes que o decaimento avance, que e uma decisao de alocacao.
  */
 final class Agente
 {
@@ -111,6 +127,9 @@ final class Agente
     /** @var array<int, int> questoes praticadas por topico */
     public array $praticas = [];
 
+    /** @var array<int, float> memoria dos estimadores alternativos, por topico */
+    public array $memoriaElo = [];
+
     /** @var array<int, float|null> dia da ultima pratica; nulo se o topico nunca apareceu */
     public array $ultimaPratica = [];
 
@@ -135,6 +154,10 @@ final class Agente
         int $provas,
         Aleatorio $sorteio,
         private readonly float $ganhoBase = self::GANHO_BASE,
+        private readonly float $retencao = 0.0,
+        private readonly string $modoElo = Elo::MODO_PADRAO,
+        private readonly int $intervaloMin = 1,
+        private readonly int $intervaloMax = 4,
     ) {
         $base = $sorteio->normal(1200.0, 90.0);
         $deslocamentos = $sorteio->embaralhar(self::DESLOCAMENTOS);
@@ -162,7 +185,7 @@ final class Agente
         // espacamento so pode ser comparado se os dois enfrentarem os mesmos
         // intervalos entre provas.
         for ($p = 0; $p < $provas; $p++) {
-            $this->intervalos[] = $p === 0 ? 0 : $sorteio->inteiro(1, 4);
+            $this->intervalos[] = $p === 0 ? 0 : $sorteio->inteiro($this->intervaloMin, $this->intervaloMax);
         }
 
         $this->reiniciar();
@@ -185,6 +208,7 @@ final class Agente
             $this->estimado[$topicoId] = Elo::PONTUACAO_INICIAL;
             $this->praticas[$topicoId] = 0;
             $this->ultimaPratica[$topicoId] = null;
+            $this->memoriaElo[$topicoId] = 0.0;
         }
     }
 
@@ -212,6 +236,35 @@ final class Agente
         return $linhas;
     }
 
+    /**
+     * Aplica o esquecimento referente aos dias decorridos desde a chamada
+     * anterior.
+     *
+     * Recebe o intervalo, e nao o tempo total desde a ultima pratica, porque o
+     * decaimento exponencial se compoe: aplicar exp(-d1/r) e depois exp(-d2/r)
+     * equivale a aplicar exp(-(d1+d2)/r). Assim o metodo pode ser chamado a
+     * cada prova sem contar o mesmo intervalo duas vezes.
+     *
+     * Sem retencao configurada, nao faz nada, e o cenario e o da premissa 4.
+     */
+    public function esquecer(float $dias): void
+    {
+        if ($this->retencao <= 0.0 || $dias <= 0.0) {
+            return;
+        }
+
+        $fator = exp(-$dias / $this->retencao);
+
+        foreach ($this->real as $topicoId => $valor) {
+            $inicial = $this->realInicial[$topicoId];
+            $aprendido = $valor - $inicial;
+
+            if ($aprendido > 0.0) {
+                $this->real[$topicoId] = $inicial + $aprendido * $fator;
+            }
+        }
+    }
+
     /** Sorteia o resultado de uma questao a partir da proficiencia real. */
     public function responder(int $topicoId, float $dificuldade, Aleatorio $sorteio): bool
     {
@@ -221,11 +274,13 @@ final class Agente
     /** Atualiza estimativa e proficiencia real depois de uma questao respondida. */
     public function registrar(int $topicoId, float $dificuldade, bool $acertou): void
     {
-        $this->estimado[$topicoId] = Elo::atualizar(
+        [$this->estimado[$topicoId], $this->memoriaElo[$topicoId]] = Elo::atualizarComEstado(
             $this->estimado[$topicoId],
             $dificuldade,
             $acertou,
-            $this->praticas[$topicoId]
+            $this->praticas[$topicoId],
+            $this->modoElo,
+            $this->memoriaElo[$topicoId] ?? 0.0
         );
 
         $this->real[$topicoId] += $this->ganhoBase / (1.0 + self::DECAIMENTO * $this->praticas[$topicoId]);

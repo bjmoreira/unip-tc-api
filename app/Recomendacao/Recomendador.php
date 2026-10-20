@@ -55,8 +55,13 @@ class Recomendador
      * Garante que nenhum topico desapareca por completo da prova otimizada:
      * mesmo os dominados mantem ao menos esta fracao do total, quando o
      * tamanho da prova permite.
+     *
+     * E o valor usado pela aplicacao. O experimento pode sobrepo-lo por
+     * parametro em distribuir(), para medir quanto do efeito adaptativo o piso
+     * consome: com nove topicos e prova de vinte, um piso de 1 ja reserva nove
+     * das vinte vagas antes de qualquer peso ser aplicado.
      */
-    private const PISO_COBERTURA = 1;
+    public const PISO_COBERTURA = 1;
 
     /**
      * Peso de um topico na montagem da prova.
@@ -64,16 +69,18 @@ class Recomendador
      * @param float      $pontuacao        proficiencia estimada no topico
      * @param float|null $diasSemPraticar  dias desde a ultima pratica; nulo se nunca praticado
      */
-    public static function peso(float $pontuacao, ?float $diasSemPraticar): float
+    public static function peso(float $pontuacao, ?float $diasSemPraticar, ?float $teto = null): float
     {
+        $tetoUsado = max(1.0, $teto ?? self::TETO_ESPACAMENTO);
+
         $defasagem = max(0.0, self::REFERENCIA - $pontuacao) / self::REFERENCIA;
         $fatorFraqueza = 0.05 + $defasagem * self::INTENSIDADE;
 
         if ($diasSemPraticar === null) {
-            $fatorEspacamento = self::TETO_ESPACAMENTO;
+            $fatorEspacamento = $tetoUsado;
         } else {
             $fatorEspacamento = min(
-                self::TETO_ESPACAMENTO,
+                $tetoUsado,
                 1.0 + (max(0.0, $diasSemPraticar) / self::JANELA_DIAS)
             );
         }
@@ -90,15 +97,18 @@ class Recomendador
      * que o arredondamento simples produziria.
      *
      * @param array<int, array{topico_id:int, pontuacao:float, dias_sem_praticar:?float}> $estado
+     * @param int|null $piso piso de cobertura; nulo usa o da aplicacao
      * @return array<int,int> topico_id => quantidade de questoes
      */
-    public static function distribuir(array $estado, int $tamanho): array
+    public static function distribuir(array $estado, int $tamanho, ?int $piso = null, ?float $teto = null): array
     {
+        $pisoPedido = max(0, $piso ?? self::PISO_COBERTURA);
+
         $pesos = [];
         $total = 0.0;
 
         foreach ($estado as $linha) {
-            $p = self::peso($linha['pontuacao'], $linha['dias_sem_praticar']);
+            $p = self::peso($linha["pontuacao"], $linha["dias_sem_praticar"], $teto);
             $pesos[$linha['topico_id']] = $p;
             $total += $p;
         }
@@ -107,10 +117,13 @@ class Recomendador
             return self::distribuirUniforme($estado, $tamanho);
         }
 
-        // Reserva o piso de cobertura, quando a prova comporta.
+        // Reserva o piso de cobertura, quando a prova comporta. So reserva se
+        // ainda sobrar, para a parte ponderada, ao menos uma vaga por topico;
+        // caso contrario o piso engoliria a prova inteira e a distribuicao
+        // deixaria de ser adaptativa.
         $qtdTopicos = count($pesos);
-        $piso = ($tamanho >= $qtdTopicos * 2) ? self::PISO_COBERTURA : 0;
-        $restante = $tamanho - ($piso * $qtdTopicos);
+        $pisoAplicado = ($tamanho >= $qtdTopicos * ($pisoPedido + 1)) ? $pisoPedido : 0;
+        $restante = $tamanho - ($pisoAplicado * $qtdTopicos);
 
         $cotas = [];
         $inteiros = [];
@@ -139,7 +152,7 @@ class Recomendador
         }
 
         foreach ($inteiros as $topicoId => $q) {
-            $inteiros[$topicoId] = $q + $piso;
+            $inteiros[$topicoId] = $q + $pisoAplicado;
         }
 
         return $inteiros;
